@@ -1,0 +1,100 @@
+--1. Все товары, в которых в название есть пометка urgent или название начинается с Animal
+
+SELECT * FROM [WideWorldImporters].[Warehouse].[StockItems]
+where StockItemName like '%urgent%'or StockItemName like 'Animal%'
+
+
+--2. Поставщиков, у которых не было сделано ни одного заказа 
+--(потом покажем как это делать через подзапрос, сейчас сделайте через JOIN)
+
+select sup.* from [WideWorldImporters].[Purchasing].[Suppliers] sup
+left join
+(SELECT distinct SupplierID
+FROM [WideWorldImporters].[Purchasing].[PurchaseOrders]) pur on sup.SupplierID = pur.SupplierID
+where pur.SupplierID is null
+order by SupplierID
+
+
+--3. Продажи с названием месяца, в котором была продажа, номером квартала, к которому относится продажа, 
+--включите также к какой трети года относится дата - каждая треть по 4 месяца, дата забора заказа должна быть задана, 
+--с ценой товара более 100$ либо количество единиц товара более 20. 
+--Добавьте вариант этого запроса с постраничной выборкой пропустив первую 1000 и отобразив следующие 100 записей. 
+--Соритровка должна быть по номеру квартала, трети года, дате продажи. 
+
+  select Inv.InvoiceID, 
+  InvoiceDate,
+  case
+	when MONTH (InvoiceDate) = 1 then 'January'
+	when MONTH (InvoiceDate) = 2 then 'February'  
+	when MONTH (InvoiceDate) = 3 then 'March'
+	when MONTH (InvoiceDate) = 4 then 'April'
+	when MONTH (InvoiceDate) = 5 then 'May'
+	when MONTH (InvoiceDate) = 6 then 'June'
+	when MONTH (InvoiceDate) = 7 then 'July'
+	when MONTH (InvoiceDate) = 8 then 'August'
+	when MONTH (InvoiceDate) = 9 then 'September'
+	when MONTH (InvoiceDate) = 10 then 'October'
+	when MONTH (InvoiceDate) = 11 then 'November'
+	when MONTH (InvoiceDate) = 12 then 'December'
+end month_name,
+case
+	when MONTH (InvoiceDate) between '1' and '3' then '1'
+	when MONTH (InvoiceDate) between '4' and '6' then '2'
+	when MONTH (InvoiceDate) between '7' and '9' then '3'
+	when MONTH (InvoiceDate) between '10' and '12' then '4'
+end quarter_num, 
+case 
+	when cast (MONTH (InvoiceDate) as numeric) % 4 = 0 then Floor (cast (MONTH (InvoiceDate) as numeric)/4)
+else Floor (cast (MONTH (InvoiceDate) as numeric)/4) + 1
+end third_num
+  from
+  (SELECT InvoiceID, InvoiceDate
+  FROM [WideWorldImporters].[Sales].[Invoices]
+  where ConfirmedDeliveryTime is not null) Inv
+  inner join
+  (SELECT distinct [InvoiceID]
+  FROM [WideWorldImporters].[Sales].[InvoiceLines]
+  where ExtendedPrice > 100 or Quantity > 20) InvL on inv.InvoiceID = invL.InvoiceID
+order by quarter_num, third_num, InvoiceDate, InvoiceID
+offset 1000 rows
+fetch first 100 rows only
+
+
+--4. Заказы поставщикам, которые были исполнены за 2014й год с доставкой Road Freight или Post, 
+--добавьте название поставщика, имя контактного лица принимавшего заказ
+
+select [PurchaseOrderID], ExpectedDeliveryDate, SupplierName, FullName, DeliveryMethodName from 
+(SELECT [PurchaseOrderID], [SupplierID], [ContactPersonID], [DeliveryMethodID], [ExpectedDeliveryDate]
+  FROM [WideWorldImporters].[Purchasing].[PurchaseOrders]
+  where ExpectedDeliveryDate between '01.01.2014' and '31.12.2014') supp
+  inner join
+  (select DeliveryMethodID, DeliveryMethodName from [Application].[DeliveryMethods]
+  where DeliveryMethodName in ('Post', 'Road Freight')) deli on supp.DeliveryMethodID = deli.DeliveryMethodID
+  left join
+  (select SupplierID, SupplierName from [Purchasing].[Suppliers]) sName on supp.SupplierID = sName.SupplierID
+  left join
+  (select PersonID, FullName from [Application].[People]) pName on supp.ContactPersonID = pName.PersonID
+
+
+--5. 10 последних по дате продаж с именем клиента и именем сотрудника, который оформил заказ.
+
+select [CustomerName], [FullName], [InvoiceDate] from 
+(SELECT TOP (10) [CustomerID], [SalespersonPersonID], [InvoiceDate]
+  FROM [WideWorldImporters].[Sales].[Invoices]
+  order by InvoiceDate desc) Inv
+  inner join
+  (select [CustomerID], [CustomerName] from [Sales].[Customers]) cus on inv.[CustomerID] = cus.[CustomerID]
+  inner join
+  (select [PersonID], [FullName] from [Application].[People]) p on inv.SalespersonPersonID = p.PersonID
+
+
+--6. Все ид и имена клиентов и их контактные телефоны, которые покупали товар Chocolate frogs 250g
+
+select distinct cus.[CustomerID], [CustomerName], [PhoneNumber] from
+(SELECT [InvoiceID]
+  FROM [WideWorldImporters].[Sales].[InvoiceLines]
+  where [Description] like '%Chocolate frogs 250g%') chok
+  inner join
+  (select [InvoiceID], [CustomerID] from [Sales].[Invoices]) inv on chok.[InvoiceID] = inv.[InvoiceID]
+  inner join
+  (select [CustomerID], [CustomerName], [PhoneNumber] from [Sales].[Customers]) cus on inv.CustomerID = cus.CustomerID
